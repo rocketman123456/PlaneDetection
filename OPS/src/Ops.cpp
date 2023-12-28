@@ -6,7 +6,7 @@
  */
 
 #include "Ops.h"
-#include "../RSPD/pointcloudio.hpp"
+#include "pointcloudio.hpp"
 
 #define VERTICAL 1
 #define HORIZONTAL 2
@@ -24,48 +24,40 @@ double CLIP_ANGLE(double angle)
     return angle;
 }
 
-std::vector<int> getNearestNeighbors(const int idx,
-                                     const pcl::PointCloudXYZ::Ptr cloud,
-                                     const int K,
-                                     const pcl::KdTreeFLANN<pcl::PointXYZ> &kdTree)
+std::vector<int> getNearestNeighbors(const int idx, const pcl::PointCloudXYZ::Ptr cloud, const int K, const pcl::KdTreeFLANN<pcl::PointXYZ>& kdTree)
 {
-    pcl::PointXYZ searchPoint = cloud->points[idx];
-    std::vector<int> idxNeighbors(K);
+    pcl::PointXYZ      searchPoint = cloud->points[idx];
+    std::vector<int>   idxNeighbors(K);
     std::vector<float> pointsNNSquaredDist(K);
     kdTree.nearestKSearch(searchPoint, K, idxNeighbors, pointsNNSquaredDist);
 
     return idxNeighbors;
 }
 
-float getDistanceToOPSPlane(const Eigen::Vector3f &p,
-                            const OPSPlane &P)
+float getDistanceToOPSPlane(const Eigen::Vector3f& p, const OPSPlane& P)
 {
-    Eigen::Vector3f diff = (p - P.second.second);
-    float distance = std::fabs(diff.dot(P.second.first)); // normal vector is already of norm 1
+    Eigen::Vector3f diff     = (p - P.second.second);
+    float           distance = std::fabs(diff.dot(P.second.first)); // normal vector is already of norm 1
 
     return distance;
 }
 
-float getDistanceToOPSPlane(const int id,
-                            const int oId,
-                            const pcl::PointCloudXYZ::Ptr cloud,
-                            const Eigen::Vector3f &normal)
+float getDistanceToOPSPlane(const int id, const int oId, const pcl::PointCloudXYZ::Ptr cloud, const Eigen::Vector3f& normal)
 {
-    Eigen::Vector3f diff = (cloud->points[id].getVector3fMap() - cloud->points[oId].getVector3fMap());
-    float distance = std::fabs(diff.dot(normal)); // normal vector is already of norm 1
+    Eigen::Vector3f diff     = (cloud->points[id].getVector3fMap() - cloud->points[oId].getVector3fMap());
+    float           distance = std::fabs(diff.dot(normal)); // normal vector is already of norm 1
 
     return distance;
 }
-Eigen::Vector3f computeGlobalSVD(const std::vector<pcl::PointXYZ> &allPoints,
-                                 const Eigen::Vector3f &centroid)
+Eigen::Vector3f computeGlobalSVD(const std::vector<pcl::PointXYZ>& allPoints, const Eigen::Vector3f& centroid)
 {
-    int N = allPoints.size();
+    int             N = allPoints.size();
     Eigen::MatrixXd A(3, N);
 
     for (int i = 0; i < N; ++i)
     {
         Eigen::Vector3d eigPoint = allPoints.at(i).getVector3fMap().cast<double>() - centroid.cast<double>();
-        A.block(0, i, 3, 1) = eigPoint;
+        A.block(0, i, 3, 1)      = eigPoint;
     }
 
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeFullV | Eigen::ComputeFullU);
@@ -73,10 +65,7 @@ Eigen::Vector3f computeGlobalSVD(const std::vector<pcl::PointXYZ> &allPoints,
     Eigen::Vector3d normal(svd.matrixU()(2, 0), svd.matrixU()(2, 1), svd.matrixU()(2, 2));
     return normal.cast<float>().normalized();
 }
-Eigen::Vector3f computeSVDNormal(const std::vector<int> &nnIdx,
-                                 const int piIdx,
-                                 const pcl::PointCloudXYZ::Ptr cloud,
-                                 const double sigma)
+Eigen::Vector3f computeSVDNormal(const std::vector<int>& nnIdx, const int piIdx, const pcl::PointCloudXYZ::Ptr cloud, const double sigma)
 {
     Eigen::Vector3f pI = cloud->points[piIdx].getVector3fMap();
     Eigen::Matrix3f Mi = Eigen::Matrix3f::Zero();
@@ -85,64 +74,64 @@ Eigen::Vector3f computeSVDNormal(const std::vector<int> &nnIdx,
     {
         if (*it != piIdx) // All neighbors that are not the reference point
         {
-            Eigen::Vector3f qij = cloud->points[*it].getVector3fMap();
-            double sqNorm = (qij - pI).squaredNorm();
-            double weight = std::exp(-sqNorm / (2 * pow(sigma, 2))); // weight factor
+            Eigen::Vector3f qij    = cloud->points[*it].getVector3fMap();
+            double          sqNorm = (qij - pI).squaredNorm();
+            double          weight = std::exp(-sqNorm / (2 * pow(sigma, 2))); // weight factor
             Eigen::Matrix3f curMat = weight * 1 / sqNorm * (qij - pI) * (qij - pI).transpose();
             Mi += curMat;
         }
     }
 
-    Eigen::Vector3f normal;
+    Eigen::Vector3f                     normal;
     Eigen::EigenSolver<Eigen::Matrix3f> es;
     es.compute(Mi, true);
 
-    auto eVals = es.eigenvalues();
+    auto  eVals  = es.eigenvalues();
     float minEig = std::numeric_limits<float>::max();
-    auto eVec = es.eigenvectors();
+    auto  eVec   = es.eigenvectors();
 
     for (unsigned int i = 0; i < eVals.size(); ++i)
     {
         if (eVals(i).real() < minEig) // eigenvalues are real
         {
-            minEig = eVals(i).real();
+            minEig             = eVals(i).real();
             auto complexNormal = eVec.block(0, i, 3, 1);
-            normal = Eigen::Vector3f(complexNormal(0, 0).real(), complexNormal(1, 0).real(), complexNormal(2, 0).real());
+            normal             = Eigen::Vector3f(complexNormal(0, 0).real(), complexNormal(1, 0).real(), complexNormal(2, 0).real());
         }
     }
 
     return normal;
 }
 // Implements Algorithm 1 from the paper
-std::pair<int, std::set<int>> detectCloud(const pcl::PointCloudXYZ::Ptr cloud,
-                                          const std::vector<int> &samples,
-                                          const std::vector<Eigen::Vector3f> &allNormals,
-                                          const std::vector<int> &allOrientations,
-                                          const bool ground,
-                                          const double threshDistOPSPlane,
-                                          const int threshInliers,
-                                          const float threshAngle,
-                                          const float p,
-                                          const int defaultOrientation)
+std::pair<int, std::set<int>> detectCloud(const pcl::PointCloudXYZ::Ptr       cloud,
+                                          const std::vector<int>&             samples,
+                                          const std::vector<Eigen::Vector3f>& allNormals,
+                                          const std::vector<int>&             allOrientations,
+                                          const bool                          ground,
+                                          const double                        threshDistOPSPlane,
+                                          const int                           threshInliers,
+                                          const float                         threshAngle,
+                                          const float                         p,
+                                          const int                           defaultOrientation)
 {
     std::chrono::time_point<std::chrono::system_clock> tStart = std::chrono::system_clock::now();
 
     int Ncloud = cloud->points.size();
-    int Ns = samples.size();
+    int Ns     = samples.size();
 
-    int iIter = 0;
-    int nIter = Ncloud;
-    int curMaxInliers = 0;
-    std::set<int> bestInliers = {};
-    int idxOI = -1;
-    bool converged = true;
-    int maxIter = 3000;
-    size_t nInliers = 0;
+    int           iIter         = 0;
+    int           nIter         = Ncloud;
+    int           curMaxInliers = 0;
+    std::set<int> bestInliers   = {};
+    int           idxOI         = -1;
+    bool          converged     = true;
+    int           maxIter       = 3000;
+    size_t        nInliers      = 0;
 
     while (iIter < nIter)
     {
         int randIdx = std::rand() % Ns;
-        idxOI = samples.at(randIdx);
+        idxOI       = samples.at(randIdx);
         std::set<int> inliers;
 
         if (allOrientations.at(randIdx) == defaultOrientation)
@@ -167,9 +156,9 @@ std::pair<int, std::set<int>> detectCloud(const pcl::PointCloudXYZ::Ptr cloud,
                 if (nInliers > curMaxInliers)
                 {
                     curMaxInliers = nInliers;
-                    bestInliers = inliers;
-                    double e = 1 - (float)(nInliers) / Ns;
-                    nIter = std::log(1 - p) / std::log(1 - (1 - e));
+                    bestInliers   = inliers;
+                    double e      = 1 - (float)(nInliers) / Ns;
+                    nIter         = std::log(1 - p) / std::log(1 - (1 - e));
                 }
             }
         }
@@ -182,10 +171,11 @@ std::pair<int, std::set<int>> detectCloud(const pcl::PointCloudXYZ::Ptr cloud,
         }
         ++iIter;
     }
-    std::chrono::time_point<std::chrono::system_clock> tEnd = std::chrono::system_clock::now();
-    double elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(tEnd - tStart).count();
+    std::chrono::time_point<std::chrono::system_clock> tEnd        = std::chrono::system_clock::now();
+    double                                             elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(tEnd - tStart).count();
     if (converged)
-        std::cerr << "Converged after " << iIter << " iterations to a OPSPlane with " << curMaxInliers << " inliers [process took: " << elapsedTime << " ms]" << std::endl;
+        std::cerr << "Converged after " << iIter << " iterations to a OPSPlane with " << curMaxInliers << " inliers [process took: " << elapsedTime << " ms]"
+                  << std::endl;
     else
         std::cerr << "Failed to converge!" << std::endl;
 
@@ -213,7 +203,8 @@ std::pair<int, std::set<int>> detectCloud(const pcl::PointCloudXYZ::Ptr cloud,
 //             p.b = b[(i * 61) % 255] * 255;
 
 //             coloredCloud->points.push_back(p);
-//             // coloredCloud->points.push_back(pcl::PointXYZRGB(point.x, point.y, point.z, r[(i * 61) % 255] * 255, g[(i * 61) % 255] * 255, b[(i * 61) % 255] * 255));
+//             // coloredCloud->points.push_back(pcl::PointXYZRGB(point.x, point.y, point.z, r[(i * 61) % 255] * 255, g[(i * 61) % 255] * 255, b[(i * 61) % 255]
+//             * 255));
 //             // coloredCloud->points.push_back(pcl::PointXYZRGB(point.x, point.y, point.z));
 //         }
 //         ++i;
@@ -232,10 +223,8 @@ std::pair<int, std::set<int>> detectCloud(const pcl::PointCloudXYZ::Ptr cloud,
 //     };
 // }
 
-std::pair<std::vector<Eigen::Vector3f>, std::vector<int>> computeAllNormals(const std::vector<int> &samples,
-                                                                            const int K,
-                                                                            const pcl::PointCloudXYZ::Ptr cloud,
-                                                                            const float threshAngle)
+std::pair<std::vector<Eigen::Vector3f>, std::vector<int>>
+computeAllNormals(const std::vector<int>& samples, const int K, const pcl::PointCloudXYZ::Ptr cloud, const float threshAngle)
 {
 
     // Kd-tree construction
@@ -243,17 +232,17 @@ std::pair<std::vector<Eigen::Vector3f>, std::vector<int>> computeAllNormals(cons
     kdTree.setInputCloud(cloud);
 
     std::vector<Eigen::Vector3f> allNormals;
-    std::vector<int> allOrientations;
+    std::vector<int>             allOrientations;
     allNormals.reserve(samples.size());
     allOrientations.reserve(samples.size());
 
     for (int idSampled : samples)
     {
-        std::vector<int> idNN = getNearestNeighbors(idSampled, cloud, K, kdTree);
-        Eigen::Vector3f curNormal = computeSVDNormal(idNN, idSampled, cloud);
+        std::vector<int> idNN      = getNearestNeighbors(idSampled, cloud, K, kdTree);
+        Eigen::Vector3f  curNormal = computeSVDNormal(idNN, idSampled, cloud);
 
         double angleToVerticalAxis = CLIP_ANGLE(std::acos(curNormal.dot(defaultParams::groundOrientation)));
-        int orientationLabel;
+        int    orientationLabel;
 
         if (angleToVerticalAxis < threshAngle)
         {
@@ -279,13 +268,13 @@ std::pair<std::vector<Eigen::Vector3f>, std::vector<int>> computeAllNormals(cons
 }
 
 std::vector<OPSPlane> process(const pcl::PointCloudXYZ::Ptr cloud,
-                              const bool verbose,
-                              const double alphaS,
-                              const int K,
-                              const double threshDistOPSPlane,
-                              const int threshInliers,
-                              const float threshAngle,
-                              const float p)
+                              const bool                    verbose,
+                              const double                  alphaS,
+                              const int                     K,
+                              const double                  threshDistOPSPlane,
+                              const int                     threshInliers,
+                              const float                   threshAngle,
+                              const float                   p)
 {
 
     if (verbose)
@@ -300,32 +289,32 @@ std::vector<OPSPlane> process(const pcl::PointCloudXYZ::Ptr cloud,
         std::cerr << "==================================" << std::endl;
     }
 
-    size_t sMini = 100;
+    size_t sMini    = 100;
     size_t sInliers = 0;
 
-    std::vector<OPSPlane> OPSPlanes;
+    std::vector<OPSPlane>         OPSPlanes;
     std::pair<int, std::set<int>> inliersOPSPlane;
-    pcl::PointCloudXYZ originalCloud(*cloud);
-    int iIter = 0;
+    pcl::PointCloudXYZ            originalCloud(*cloud);
+    int                           iIter = 0;
 
     // Step 1: Draw samples
-    int Ncloud = cloud->points.size();
-    int Ns = (int)round(alphaS * Ncloud);
+    int              Ncloud = cloud->points.size();
+    int              Ns     = (int)round(alphaS * Ncloud);
     std::vector<int> ps;
     std::vector<int> allPointsIdx(Ncloud);
     for (int i = 0; i < Ncloud; ++i)
         allPointsIdx.at(i) = i;
 
-    std::sample(allPointsIdx.begin(), allPointsIdx.end(), std::back_inserter(ps), Ns, std::mt19937{std::random_device{}()});
+    std::sample(allPointsIdx.begin(), allPointsIdx.end(), std::back_inserter(ps), Ns, std::mt19937 {std::random_device {}()});
 
     // Step 2: Compute normals
-    std::pair<std::vector<Eigen::Vector3f>, std::vector<int>> result = computeAllNormals(ps, K, cloud);
-    std::vector<Eigen::Vector3f> allNormals = result.first;
-    std::vector<int> allOrientations = result.second;
+    std::pair<std::vector<Eigen::Vector3f>, std::vector<int>> result          = computeAllNormals(ps, K, cloud);
+    std::vector<Eigen::Vector3f>                              allNormals      = result.first;
+    std::vector<int>                                          allOrientations = result.second;
 
     // Step 3: Detect OPSPlanes
 
-    int defaultOrientation;
+    int  defaultOrientation;
     bool stop[3] = {false, false, false};
     do
     {
@@ -352,14 +341,14 @@ std::vector<OPSPlane> process(const pcl::PointCloudXYZ::Ptr cloud,
 
         // Remove inliers from cloud
         pcl::ExtractIndices<pcl::PointXYZ> extractIndices;
-        pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
+        pcl::PointIndices::Ptr             inliers(new pcl::PointIndices());
 
         sInliers = inliersOPSPlane.second.size();
 
         if (!sInliers)
             break; // Failed to converge
 
-        Eigen::Vector3f centroid(0, 0, 0);
+        Eigen::Vector3f            centroid(0, 0, 0);
         std::vector<pcl::PointXYZ> curOPSPlane;
 
         for (auto it = inliersOPSPlane.second.begin(); it != inliersOPSPlane.second.end(); ++it)
@@ -368,9 +357,9 @@ std::vector<OPSPlane> process(const pcl::PointCloudXYZ::Ptr cloud,
             curOPSPlane.push_back(cloud->points[ps.at(*it)]);
         }
 
-        std::vector<int> tmpPs;
+        std::vector<int>             tmpPs;
         std::vector<Eigen::Vector3f> tmpNormals;
-        std::vector<int> tmpOrientation;
+        std::vector<int>             tmpOrientation;
         tmpOrientation.reserve(Ns - sInliers);
         tmpNormals.reserve(Ns - sInliers);
         tmpPs.reserve(Ns - sInliers);
@@ -385,10 +374,10 @@ std::vector<OPSPlane> process(const pcl::PointCloudXYZ::Ptr cloud,
             }
         }
         allOrientations = tmpOrientation;
-        allNormals = tmpNormals;
-        ps = tmpPs;
+        allNormals      = tmpNormals;
+        ps              = tmpPs;
 
-        Ns = ps.size();
+        Ns                             = ps.size();
         Eigen::Vector3f OPSPlaneNormal = computeGlobalSVD(curOPSPlane, centroid);
         OPSPlanes.push_back(std::make_pair(curOPSPlane, std::make_pair(OPSPlaneNormal, centroid)));
 
@@ -426,7 +415,7 @@ std::vector<OPSPlane> process(const pcl::PointCloudXYZ::Ptr cloud,
     // visualizeOPSPlanes(OPSPlanes, cloud);
 }
 
-void mergeOPSPlanes(std::vector<OPSPlane> &OPSPlanes)
+void mergeOPSPlanes(std::vector<OPSPlane>& OPSPlanes)
 {
     bool out = false;
 
@@ -442,18 +431,18 @@ void mergeOPSPlanes(std::vector<OPSPlane> &OPSPlanes)
                 {
                     std::vector<pcl::PointXYZ> inliersA = (*itA).first;
                     std::vector<pcl::PointXYZ> inliersB = (*itB).first;
-                    size_t nA = inliersA.size();
-                    size_t nB = inliersB.size();
+                    size_t                     nA       = inliersA.size();
+                    size_t                     nB       = inliersB.size();
 
                     for (auto elem : inliersA)
                         itB->first.push_back(elem);
 
                     Eigen::Vector3f nCentroid = 1 / (nA + nB) * (nA * itA->second.second + nB * itB->second.second); // updated centroid
-                    Eigen::Vector3f nNormal = computeGlobalSVD(itB->first, nCentroid);                               // Recompute normals with all inliers
-                    itB->second.first = nNormal;
-                    itB->second.second = nCentroid;
-                    out = true;
-                    itA = OPSPlanes.erase(itA);
+                    Eigen::Vector3f nNormal   = computeGlobalSVD(itB->first, nCentroid);                             // Recompute normals with all inliers
+                    itB->second.first         = nNormal;
+                    itB->second.second        = nCentroid;
+                    out                       = true;
+                    itA                       = OPSPlanes.erase(itA);
 
                     break;
                 }
@@ -474,8 +463,7 @@ void mergeOPSPlanes(std::vector<OPSPlane> &OPSPlanes)
     }
 }
 
-bool compareOPSPlanes(const OPSPlane &A,
-                      const OPSPlane &B)
+bool compareOPSPlanes(const OPSPlane& A, const OPSPlane& B)
 {
     float distA = getDistanceToOPSPlane(A.second.second, B);
     float distB = getDistanceToOPSPlane(B.second.second, A);
