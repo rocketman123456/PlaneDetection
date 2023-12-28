@@ -1,4 +1,5 @@
 #include "plane_detection.h"
+
 #include <functional>
 #include <iomanip> // output double value precision
 #include <stdint.h>

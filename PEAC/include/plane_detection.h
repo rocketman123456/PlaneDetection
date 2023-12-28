@@ -1,9 +1,9 @@
 #ifndef PLANEDETECTION_H
 #define PLANEDETECTION_H
 
-#include "AHCPlaneFitter.hpp"
 #include "GCoptimization.h"
 #include "mrf.h"
+#include "peac/AHCPlaneFitter.hpp"
 
 #include <Eigen/Eigen>
 #include <opencv2/opencv.hpp>
