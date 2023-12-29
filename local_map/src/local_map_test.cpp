@@ -9,12 +9,17 @@ try
     rs2::pipeline pipe;
     rs2::config   cfg;
 
+    // std::string serial;
+    // cfg.enable_device(serial);
     cfg.enable_stream(RS2_STREAM_INFRARED, 640, 480, RS2_FORMAT_Y8, 60);
     cfg.enable_stream(RS2_STREAM_DEPTH, 640, 480, RS2_FORMAT_Z16, 60);
     cfg.enable_stream(RS2_STREAM_COLOR, 640, 480, RS2_FORMAT_BGR8, 60);
 
     // Configure and start the pipeline
-    pipe.start(cfg);
+    rs2::pipeline_profile profile = pipe.start(cfg);
+
+    auto device = profile.get_device();
+    std::cout << device.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER) <<std::endl;
 
     // Define two align objects. One will be used to align
     // to depth viewport and the other to color.
@@ -32,6 +37,9 @@ try
     rs2::temporal_filter     temp_filter;              // Temporal   - reduces temporal noise
     rs2::disparity_transform depth_to_disparity(true); // Declare disparity transform from depth to disparity and vice versa
     rs2::disparity_transform disparity_to_depth(false);
+
+    rs2::pointcloud pc;     // Declare pointcloud object, for calculating pointclouds and texture mappings
+    rs2::points     points; // We want the points object to be persistent so we can display the last cloud when a frame drops
 
     // cv::namedWindow("Color", cv::WINDOW_AUTOSIZE);
     // cv::namedWindow("Depth", cv::WINDOW_AUTOSIZE);
@@ -57,8 +65,8 @@ try
 
         // auto filtered = dec_filter.process(depth_frame);
         auto filtered_frame = thr_filter.process(depth_frame);
-        filtered_frame = spat_filter.process(filtered_frame);
-        filtered_frame = temp_filter.process(filtered_frame);
+        filtered_frame      = spat_filter.process(filtered_frame);
+        filtered_frame      = temp_filter.process(filtered_frame);
 
         rs2::video_frame colorized_depth = color_map.process(filtered_frame);
 
@@ -67,6 +75,19 @@ try
         // cv::Mat depth(cv::Size(640, 480), CV_16UC1, (void*)depth_frame.get_data(), cv::Mat::AUTO_STEP);
         cv::Mat depth(cv::Size(640, 480), CV_8UC3, (void*)colorized_depth.get_data(), cv::Mat::AUTO_STEP);
         cv::Mat ir(cv::Size(640, 480), CV_8UC1, (void*)ir_frame.get_data(), cv::Mat::AUTO_STEP);
+
+        pc.map_to(color_frame);                             // Tell pointcloud object to map to this color frame
+        points          = pc.calculate(filtered_frame);     // Generate the pointcloud and texture mappings
+        auto vertices   = points.get_vertices();            // get vertices
+        auto tex_coords = points.get_texture_coordinates(); // and texture coordinates
+        float* points_ptr = (float*)(vertices);
+        for (int i = 0; i < points.size(); i++)
+        {
+            if (vertices[i].z)
+            {
+                // TODO
+            }
+        }
 
         equalizeHist(ir, ir);
         applyColorMap(ir, ir, cv::COLORMAP_JET);

@@ -49,6 +49,7 @@ float getDistanceToOPSPlane(const int id, const int oId, const pcl::PointCloudXY
 
     return distance;
 }
+
 Eigen::Vector3f computeGlobalSVD(const std::vector<pcl::PointXYZ>& allPoints, const Eigen::Vector3f& centroid)
 {
     int             N = allPoints.size();
@@ -65,6 +66,7 @@ Eigen::Vector3f computeGlobalSVD(const std::vector<pcl::PointXYZ>& allPoints, co
     Eigen::Vector3d normal(svd.matrixU()(2, 0), svd.matrixU()(2, 1), svd.matrixU()(2, 2));
     return normal.cast<float>().normalized();
 }
+
 Eigen::Vector3f computeSVDNormal(const std::vector<int>& nnIdx, const int piIdx, const pcl::PointCloudXYZ::Ptr cloud, const double sigma)
 {
     Eigen::Vector3f pI = cloud->points[piIdx].getVector3fMap();
@@ -102,6 +104,7 @@ Eigen::Vector3f computeSVDNormal(const std::vector<int>& nnIdx, const int piIdx,
 
     return normal;
 }
+
 // Implements Algorithm 1 from the paper
 std::pair<int, std::set<int>> detectCloud(const pcl::PointCloudXYZ::Ptr       cloud,
                                           const std::vector<int>&             samples,
